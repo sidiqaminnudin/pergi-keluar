@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import {fileURLToPath} from 'url';
+import registerTlTracking from './tl-tracking.js';
 const __dirname=path.dirname(fileURLToPath(import.meta.url));
 const app=express(); const pool=new pg.Pool({connectionString:process.env.DATABASE_URL});
 if(!process.env.DATABASE_URL || !process.env.SESSION_SECRET || process.env.SESSION_SECRET.length<32) throw new Error('Set DATABASE_URL dan SESSION_SECRET (>=32 karakter) dalam .env');
@@ -24,7 +25,7 @@ const safe=(v,n=300)=>String(v??'').slice(0,n); const slug=v=>safe(v,160).toLowe
 const arr=(v,n=100)=>Array.isArray(v)?v.slice(0,n):[];
 const publicTrip=t=>({id:t.id,slug:t.slug,title:t.title,subtitle:t.subtitle,description:t.description,cover:t.cover,start_date:t.start_date,end_date:t.end_date,participant_min:t.participant_min,participant_max:t.participant_max,location:t.location,reminder:t.reminder,days:t.days,destination_ids:t.destination_ids,stops:t.stops,infos:t.infos,gallery:t.gallery,featured:t.featured});
 const handle=fn=>(req,res,next)=>Promise.resolve(fn(req,res)).catch(next);
-const auth=(req,res,next)=>req.session.adminId?next():res.status(401).json({error:'Login admin diperlukan'});
+const auth=(req,res,next)=>handle(async()=>{const r=await q("SELECT id FROM admins WHERE id=$1 AND role='admin' AND is_active=true",[req.session.adminId||null]);if(!r.rowCount)return res.status(401).json({error:'Login admin diperlukan'});next();})(req,res,next);
 const csrf=(req,res,next)=>{if(['GET','HEAD','OPTIONS'].includes(req.method))return next();const a=req.get('origin');if(a&&new URL(a).host!==req.get('host'))return res.status(403).json({error:'Origin tidak diizinkan'});if(req.path.includes('/auth/login'))return next();if(!req.session.csrf||req.get('x-csrf-token')!==req.session.csrf)return res.status(403).json({error:'CSRF token tidak valid'});next()};
 const audit=async(req,action,entity,id)=>{await q('INSERT INTO audit_logs(admin_id,action,entity,entity_id) VALUES($1,$2,$3,$4)',[req.session.adminId,action,entity,id])};
 app.get('/api/public/site',handle(async(req,res)=>{const {rows}=await q('SELECT data FROM site_settings WHERE id=1');res.json({...settingsDefault,...rows[0]?.data})}));
@@ -34,7 +35,7 @@ app.get('/api/public/private-trips/:token',handle(async(req,res)=>{const hash=cr
 app.get('/api/public/destinations',handle(async(req,res)=>res.json((await q('SELECT * FROM destinations ORDER BY featured DESC,name')).rows)));
 app.get('/api/public/destinations/:slug',handle(async(req,res)=>{const {rows}=await q('SELECT * FROM destinations WHERE slug=$1',[req.params.slug]);if(!rows.length)return res.status(404).json({error:'Destinasi tidak ditemukan'});res.json(rows[0])}));
 const loginLimiter=rateLimit({windowMs:15*60*1000,limit:8,standardHeaders:'draft-7',legacyHeaders:false});
-app.post('/api/admin/auth/login',loginLimiter,handle(async(req,res)=>{const {rows}=await q('SELECT * FROM admins WHERE email=$1 AND is_active=true',[safe(req.body.email,250).toLowerCase()]);const user=rows[0];if(!user||!await bcrypt.compare(String(req.body.password??''),user.password_hash))return res.status(401).json({error:'Email atau password salah'});req.session.regenerate(err=>{if(err)return res.status(500).json({error:'Tidak dapat memulai sesi'});req.session.adminId=user.id;req.session.email=user.email;req.session.csrf=crypto.randomBytes(24).toString('hex');res.json({email:user.email,csrf:req.session.csrf})})}));
+app.post('/api/admin/auth/login',loginLimiter,handle(async(req,res)=>{const {rows}=await q("SELECT * FROM admins WHERE email=$1 AND is_active=true AND role='admin'",[safe(req.body.email,250).toLowerCase()]);const user=rows[0];if(!user||!await bcrypt.compare(String(req.body.password??''),user.password_hash))return res.status(401).json({error:'Email atau password salah'});req.session.regenerate(err=>{if(err)return res.status(500).json({error:'Tidak dapat memulai sesi'});req.session.adminId=user.id;req.session.email=user.email;req.session.csrf=crypto.randomBytes(24).toString('hex');res.json({email:user.email,csrf:req.session.csrf})})}));
 app.get('/api/admin/auth/me',auth,(req,res)=>res.json({email:req.session.email,csrf:req.session.csrf}));
 app.use('/api/admin',csrf);
 app.post('/api/admin/auth/logout',auth,(req,res)=>req.session.destroy(()=>{res.clearCookie('pk.sid');res.json({ok:true})}));
@@ -61,7 +62,10 @@ app.post('/api/admin/media',auth,upload.single('file'),handle(async(req,res)=>{i
 app.delete('/api/admin/media/:id',auth,handle(async(req,res)=>{const r=await q('DELETE FROM media WHERE id=$1 RETURNING path',[req.params.id]);if(r.rows[0]?.path.startsWith('/uploads/')){const file=path.join(__dirname,'storage/uploads',path.basename(r.rows[0].path));fs.rm(file,{force:true},()=>{})}await audit(req,'delete','media',req.params.id);res.json({ok:true})}));
 app.get('/api/admin/settings',auth,handle(async(req,res)=>res.json({...settingsDefault,...(await q('SELECT data FROM site_settings WHERE id=1')).rows[0]?.data})));
 app.patch('/api/admin/settings',auth,handle(async(req,res)=>{const obj={};for(const k of Object.keys(settingsDefault))if(k in req.body)obj[k]=safe(req.body[k],k==='about'?3000:900);if(obj.primary&&!/^#[0-9a-fA-F]{6}$/.test(obj.primary))return res.status(400).json({error:'Kode warna harus hex (#RRGGBB)'});const r=await q("INSERT INTO site_settings(id,data) VALUES(1,$1) ON CONFLICT (id) DO UPDATE SET data=site_settings.data || excluded.data,updated_at=now() RETURNING data",[JSON.stringify(obj)]);await audit(req,'update','settings','site');res.json(r.rows[0].data)}));
+registerTlTracking({app,pool,auth,csrf,audit,handle});
 app.use('/uploads',express.static(path.join(__dirname,'storage/uploads'),{fallthrough:false,maxAge:'1d'}));app.use('/assets',express.static(path.join(__dirname,'public/assets')));
+app.get(['/live','/slideshow'],(req,res)=>res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'}).sendFile(path.join(__dirname,'public/tracking.html')));
+app.get(['/tl','/tl/login','/admin/team-leads'],(req,res)=>res.set('Cache-Control','no-store').sendFile(path.join(__dirname,'public/tl.html')));
 app.get(/^\/(?!api\/|uploads\/|assets\/).*/, (req,res)=>res.sendFile(path.join(__dirname,'public/index.html')));
 app.use((err,req,res,next)=>{console.error(err);res.status(err.status|| (err.code==='23505'?409:err instanceof multer.MulterError?400:500)).json({error:err.code==='23505'?'Slug/email sudah digunakan':err.status?err.message:'Terjadi kesalahan server'})});
 async function init(){const sql=fs.readFileSync(path.join(__dirname,'db/schema.sql'),'utf8');await q(sql);await q('INSERT INTO site_settings(id,data) VALUES(1,$1) ON CONFLICT(id) DO NOTHING',[JSON.stringify(settingsDefault)]);const c=await q('SELECT count(*)::int n FROM admins');if(!c.rows[0].n){if(!process.env.ADMIN_EMAIL||!process.env.ADMIN_PASSWORD||process.env.ADMIN_PASSWORD==='CHANGE-ME-BEFORE-FIRST-START')throw new Error('Atur ADMIN_EMAIL dan ADMIN_PASSWORD yang aman sebelum start pertama');await q('INSERT INTO admins(email,password_hash) VALUES($1,$2)',[process.env.ADMIN_EMAIL.toLowerCase(),await bcrypt.hash(process.env.ADMIN_PASSWORD,12)]);console.log('Admin pertama dibuat:',process.env.ADMIN_EMAIL)}await seed();app.listen(Number(process.env.PORT)||3000,()=>console.log('PERGI KELUAR: http://localhost:'+(process.env.PORT||3000)))}
