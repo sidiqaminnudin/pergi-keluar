@@ -15,3 +15,5 @@ CREATE TABLE IF NOT EXISTS tl_tracking_events (id uuid PRIMARY KEY DEFAULT gen_r
 CREATE INDEX IF NOT EXISTS tl_events_session_time ON tl_tracking_events(session_id,created_at DESC); 
 
 ALTER TABLE tl_tracking_sessions ADD COLUMN IF NOT EXISTS checkpoints jsonb NOT NULL DEFAULT '[]';
+CREATE TABLE IF NOT EXISTS tl_session_media (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid NOT NULL REFERENCES tl_tracking_sessions(id) ON DELETE CASCADE, mime_type text NOT NULL, caption text NOT NULL DEFAULT '', content bytea NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS tl_media_session ON tl_session_media(session_id,created_at);
