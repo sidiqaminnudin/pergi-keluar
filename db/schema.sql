@@ -17,3 +17,10 @@ CREATE INDEX IF NOT EXISTS tl_events_session_time ON tl_tracking_events(session_
 ALTER TABLE tl_tracking_sessions ADD COLUMN IF NOT EXISTS checkpoints jsonb NOT NULL DEFAULT '[]';
 CREATE TABLE IF NOT EXISTS tl_session_media (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), session_id uuid NOT NULL REFERENCES tl_tracking_sessions(id) ON DELETE CASCADE, mime_type text NOT NULL, caption text NOT NULL DEFAULT '', content bytea NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS tl_media_session ON tl_session_media(session_id,created_at);
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS price_from integer CHECK(price_from IS NULL OR price_from >= 0);
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS seats_left integer CHECK(seats_left IS NULL OR seats_left >= 0);
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS meeting_point text NOT NULL DEFAULT '';
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS includes text NOT NULL DEFAULT '';
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS excludes text NOT NULL DEFAULT '';
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS youtube_url text NOT NULL DEFAULT '';
+ALTER TABLE destinations ADD COLUMN IF NOT EXISTS youtube_url text NOT NULL DEFAULT '';

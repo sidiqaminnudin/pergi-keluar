@@ -11,14 +11,14 @@ function setup({users,trips,assignments}={}){
   trips=trips??[{id:'t1',title:'Borobudur 2 Hari'},{id:'t2',title:'Trip Bromo'}];
   assignments=assignments??[{tl_id:'u1',trip_id:'t1'}];
   const apiCalls=[],toasts=[];
-  const forms={},unassignButtons=[],toggleButtons=[];
+  const forms={},unassignButtons=[],toggleButtons=[],deleteButtons=[];
   class FakeFormData{
-    constructor(form){this._={email:'tl3@pergikeluar.id',password:'rahasia-aman-12',tlId:'u1',tripId:'t1'};}
+    constructor(form){this._={email:'tl3@pergikeluar.id',password:'aman66',tlId:'u1',tripId:'t1'};}
     [Symbol.iterator](){return Object.entries(this._)[Symbol.iterator]();}
   }
   const document={
     querySelector:sel=>forms[sel]??null,
-    querySelectorAll:sel=>sel==='[data-unassign]'?unassignButtons:sel==='[data-toggle-tl]'?toggleButtons:[]
+    querySelectorAll:sel=>sel==='[data-unassign]'?unassignButtons:sel==='[data-toggle-tl]'?toggleButtons:sel==='[data-delete-tl]'?deleteButtons:[]
   };
   let layoutContent=null,layoutTitle=null;
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -29,12 +29,12 @@ function setup({users,trips,assignments}={}){
     empty:t=>`<div class="empty">${t}</div>`,
     field:(name,label,value='',type='text',extra='')=>`<label class="field">${label}<input name="${name}" type="${type}" value="${value??''}" ${extra}></label>`,
     selectField:(name,label,value,opts=[])=>`<label class="field">${label}<select name="${name}">${opts.map(([v,t])=>`<option value="${v}" ${value===v?'selected':''}>${t}</option>`).join('')}</select></label>`,
-    adminLayout:(content,title)=>{layoutContent=content;layoutTitle=title;forms['#createTl']={onsubmit:null};forms['#assignTl']={onsubmit:null};unassignButtons.length=0;unassignButtons.push({dataset:{unassign:'u1/t1'},onclick:null});toggleButtons.length=0;toggleButtons.push({dataset:{toggleTl:'u2',enable:'true'},onclick:null});},
+    adminLayout:(content,title)=>{layoutContent=content;layoutTitle=title;forms['#createTl']={onsubmit:null};forms['#assignTl']={onsubmit:null};unassignButtons.length=0;unassignButtons.push({dataset:{unassign:'u1/t1'},onclick:null});toggleButtons.length=0;toggleButtons.push({dataset:{toggleTl:'u2',enable:'true'},onclick:null});deleteButtons.length=0;deleteButtons.push({dataset:{deleteTl:'u2'},onclick:null});},
     api:async(url,opts={})=>{apiCalls.push({url,opts});if(url==='/api/admin/team-leads')return users;if(url==='/api/admin/trips')return trips;if(url==='/api/admin/tl-assignments')return assignments;return {};},
     toast:(msg,err=false)=>toasts.push({msg,err})
   });
   vm.runInContext(slice,context);
-  return {context,forms,unassignButtons,toggleButtons,getApi:()=>apiCalls,getToasts:()=>toasts,getLayout:()=>({content:layoutContent,title:layoutTitle})};
+  return {context,forms,unassignButtons,toggleButtons,deleteButtons,getApi:()=>apiCalls,getToasts:()=>toasts,getLayout:()=>({content:layoutContent,title:layoutTitle})};
 }
 
 test('teamLeadsAdmin fetches TL, trips, and assignments then renders via adminLayout',async()=>{
@@ -46,13 +46,17 @@ test('teamLeadsAdmin fetches TL, trips, and assignments then renders via adminLa
   assert.ok(api.some(c=>c.url==='/api/admin/tl-assignments'),'fetches assignments');
   assert.equal(title,'Kelola Team Lead');
   assert.match(content,/id="createTl"/);
+  assert.match(content,/minlength="6"/);
+  assert.match(content,/Password \(6–72 karakter\)/);
   assert.match(content,/id="assignTl"/);
   assert.match(content,/data-unassign="u1\/t1"/);
   assert.match(content,/data-toggle-tl="u2"/);
+  assert.match(content,/data-delete-tl="u2"/);
   assert.match(content,/tl@pergikeluar\.id/);
   assert.match(content,/Borobudur 2 Hari/);
   assert.match(content,/Nonaktifkan/);
   assert.match(content,/Aktifkan/);
+  assert.match(content,/Hapus/);
 });
 
 test('create TL form posts to /api/admin/team-leads',async()=>{
@@ -83,4 +87,12 @@ test('toggle button patches TL active state',async()=>{
   const patch=getApi().find(c=>c.url==='/api/admin/team-leads/u2'&&c.opts.method==='PATCH');
   assert.ok(patch,'patches TL');
   assert.equal(JSON.parse(patch.opts.body).isActive,true);
+});
+
+test('delete button deletes TL account',async()=>{
+  const {context,deleteButtons,getApi}=setup();
+  await context.teamLeadsAdmin();
+  await deleteButtons[0].onclick();
+  const del=getApi().find(c=>c.url==='/api/admin/team-leads/u2'&&c.opts.method==='DELETE');
+  assert.ok(del,'deletes TL');
 });

@@ -49,3 +49,37 @@ test('slideshow plays video to completion before advancing while keeping 8s time
   video.dispatch('ended');
   assert.ok(baseSlides[0].classList.contains('active'),'video ended event advances to next slide');
 });
+test('interactive Leaflet map anchors car marker to GPS coordinates, pauses auto-follow on drag, and formats accuracy/speed',()=>{
+  const nodes=new Map();
+  const makeNode=()=>({textContent:'',innerHTML:'',className:'',href:'',appendChild(){},classList:{set:new Set(),toggle(c,f){f?this.set.add(c):this.set.delete(c)},contains(c){return this.set.has(c)}}});
+  const document={querySelector(s){if(!nodes.has(s))nodes.set(s,makeNode());return nodes.get(s)},querySelectorAll(){return []}};
+  let markerLatLng=null,circleLatLng=null,circleRadius=0,pannedTo=null,flownTo=null,dragHandler=null;
+  const L={
+    map(el,opts){markerLatLng=opts.center;return {on(ev,fn){if(ev==='dragstart')dragHandler=fn;},panTo(ll){pannedTo=ll;},flyTo(ll){flownTo=ll;},getZoom(){return 16;},removeLayer(){},invalidateSize(){},remove(){}};},
+    control:{zoom(){return {addTo(){}};}},
+    tileLayer(){return {addTo(){return this;}};},
+    circle(ll,opts){circleLatLng=ll;circleRadius=opts.radius;return {addTo(){return this;},setLatLng(n){circleLatLng=n;},setRadius(r){circleRadius=r;}};},
+    divIcon(opts){return opts;},
+    marker(ll){markerLatLng=ll;return {addTo(){return this;},setLatLng(n){markerLatLng=n;}};}
+  };
+  const ctx=vm.createContext({document,L,location:{search:'?slug=demo'},URLSearchParams,Date,setInterval(){}});
+  vm.runInContext(script.slice(0,script.indexOf('if(location.pathname===')),ctx);
+  ctx.renderLive(fresh());
+  assert.deepEqual([...markerLatLng],[-6,106]);
+  assert.equal(document.querySelector('#mapHudAcc').textContent,'±12 m');
+  assert.equal(document.querySelector('#mapHudSpeed').textContent,'0 km/jam');
+  // Simulate user dragging the map -> auto-follow pauses
+  dragHandler();
+  assert.equal(document.querySelector('#mapFollowBtn').textContent,'🎯 Fokus ke Mobil');
+  // New GPS coordinates arrive while user has panned away -> marker moves to new coordinates without yanking map
+  ctx.renderLive({...fresh(),location:{latitude:-6.01,longitude:106.02,accuracyMeters:24500,speedKmh:48}});
+  assert.deepEqual([...markerLatLng],[-6.01,106.02]);
+  assert.deepEqual([...circleLatLng],[-6.01,106.02]);
+  assert.equal(pannedTo,null);
+  assert.equal(document.querySelector('#mapHudAcc').textContent,'±25 km');
+  assert.equal(document.querySelector('#mapHudSpeed').textContent,'48 km/jam');
+  // Clicking follow button flies back to car and re-enables followCar
+  document.querySelector('#mapFollowBtn').onclick();
+  assert.deepEqual([...flownTo],[-6.01,106.02]);
+  assert.equal(document.querySelector('#mapFollowBtn').textContent,'🎯 Mengikuti Mobil');
+});

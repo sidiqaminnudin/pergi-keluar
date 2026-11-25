@@ -30,4 +30,17 @@ test('reset restores full route and keeps selected map layer',()=>{
  const {frame,buttons,select,reset}=setup();buttons[2].onclick();select.value='k';reset.onclick();
  const url=new URL(frame.src);assert.equal(url.searchParams.get('saddr'),'-6,106');assert.equal(url.searchParams.get('t'),'k');assert.equal(url.searchParams.has('q'),false);
 });
- test('pages without a map are ignored',()=>{const context=vm.createContext({document:{querySelector:()=>null}});vm.runInContext(helper,context);context.enhanceJourneyMap([])});
+test('pages without a map are ignored',()=>{const context=vm.createContext({document:{querySelector:()=>null}});vm.runInContext(helper,context);context.enhanceJourneyMap([])});
+test('step buttons skip stops without valid coordinates',()=>{
+ let prevBtn,nextBtn;const frame={src:'https://maps.google.com/maps?output=embed&t=k&saddr=-6,106&daddr=-8,108&dirflg=d'};
+ const select={value:'m'},status={},reset={};
+ const toolbar={querySelector:s=>s==='select'?select:s==='[role="status"]'?status:reset,querySelectorAll:()=>[]};
+ const box={querySelector:s=>s==='iframe'?frame:s==='[data-step-prev]'?(prevBtn={}):s==='[data-step-next]'?(nextBtn={}):null,prepend(){},querySelectorAll:()=>[]};
+ const document={querySelector:()=>box,createElement:()=>toolbar};
+ const context=vm.createContext({document,URL,Number,String});
+ vm.runInContext(helper,context);
+ context.enhanceJourneyMap([{label:'Awal',latitude:-6,longitude:106},{label:'Tanpa GPS',latitude:null,longitude:null},{label:'Akhir',latitude:-8,longitude:108}]);
+ nextBtn.onclick();assert.equal(new URL(frame.src).searchParams.get('q'),'-6,106');
+ nextBtn.onclick();assert.equal(new URL(frame.src).searchParams.get('q'),'-8,108');
+ prevBtn.onclick();assert.equal(new URL(frame.src).searchParams.get('q'),'-6,106');
+});
